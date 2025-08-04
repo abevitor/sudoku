@@ -4,17 +4,21 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
-import javax.swing.*;
-import javax.swing.border.Border;
 import javax.sound.sampled.*;
+import javax.swing.*;
 import java.util.List;
 
 public class Sudoku {
     Clip clip;
     FloatControl controleVolume;
     boolean isMuted = false;
-    int musicaAtualIndex = -1; // Inicializado em -1 para começar no índice 0 na primeira música
+    boolean isPaused = false;          // Para controlar play/pause
+    boolean repetirMusica = false;     // Se true, repete a mesma música ao acabar
+    int musicaAtualIndex = -1;         // Inicializado em -1 para começar no índice 0
     JSlider volumeSlider = new JSlider(-80, 6);
+    boolean foiPausadoManualmente = false;
+    private int framePosicaoPausada = 0;
+    private boolean musicaPausada = false;
 
     List<String> playlist = Arrays.asList(
         "/audio/joao.wav",
@@ -23,6 +27,9 @@ public class Sudoku {
         "/audio/logo_eu.wav",
         "/audio/kingston.wav"
     );
+
+    // Label para mostrar nome da música atual
+    JLabel musicaAtualLabel = new JLabel("Música: ");
 
     // ✅ Botão customizado que armazena posição (linha, coluna)
     class Tile extends JButton {
@@ -47,11 +54,16 @@ public class Sudoku {
     JPanel painelSom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
     JButton botaoMute = new JButton("🔇");
 
+    // Botões novos para controlar música
+    JButton botaoPlayPause = new JButton("▶️");
+
+    JButton botaoProxima = new JButton("⏭");
+    JButton botaoRepetir = new JButton("🔁");
+
     JButton numeroSelecionado = null;
     int errors = 0;
-    int acertos = 0; // 🆕 Contador total de acertos, incluindo campos fixos
+    int acertos = 0;
 
-    // ✅ Tabuleiro incompleto
     String[] puzzle = {
         "53--7----",
         "6--195---",
@@ -64,7 +76,6 @@ public class Sudoku {
         "----8--79"
     };
 
-    // ✅ Solução completa
     String[] solution = {
         "534678912",
         "672195348",
@@ -78,8 +89,6 @@ public class Sudoku {
     };
 
     Sudoku() {
-        tocarProximaMusica();
-
         frame.setSize(largura, altura);
         frame.setResizable(false);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -92,39 +101,60 @@ public class Sudoku {
 
         textoPainel.setLayout(new BorderLayout());
         textoPainel.add(textoLabel, BorderLayout.CENTER);
-        frame.add(textoPainel, BorderLayout.NORTH);
 
-        painelQuadrado.setLayout(new GridLayout(9, 9));
-        setupTiles();
+        // Label da música atual à esquerda no painelSom
+        musicaAtualLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+        painelSom.add(musicaAtualLabel);
 
-        contarAcertosIniciais();
-        frame.add(painelQuadrado, BorderLayout.CENTER);
+        // Botão mute
+       botaoMute.addActionListener(e -> {
+    if (clip == null) return;
 
-        botaoNumeros.setLayout(new GridLayout(1, 9));
-        setupButtons();
-        frame.add(botaoNumeros, BorderLayout.SOUTH);
-
-        botaoMute.setFocusable(false);
-        botaoMute.addActionListener(e -> {
-    if (controleVolume == null) return; // evita NullPointerException
-
-    isMuted = !isMuted;
-
-    if (isMuted) {
-        controleVolume.setValue(controleVolume.getMinimum()); // volume mínimo (silêncio)
-        botaoMute.setText("🔈");
+    if (!musicaPausada) {
+        // Pausa
+        framePosicaoPausada = clip.getFramePosition();
+        clip.stop();
+        musicaPausada = true;
+        botaoMute.setText("▶"); // símbolo de play
     } else {
-        controleVolume.setValue(volumeSlider.getValue());
-        botaoMute.setText("🔇");
+        // Continua de onde parou
+        clip.setFramePosition(framePosicaoPausada);
+        clip.start();
+        musicaPausada = false;
+        botaoMute.setText("⏸"); // símbolo de pause
     }
 });
 
-volumeSlider.addChangeListener(e -> {
-    if (!isMuted && controleVolume != null) {
-        controleVolume.setValue(volumeSlider.getValue());
-    }
-});
+        // Botão Play/Pause
+        botaoPlayPause.setFocusable(false);
+        botaoPlayPause.addActionListener(e -> {
+            if (clip == null) return;
 
+            if (isPaused) {
+                clip.start();
+                botaoPlayPause.setText("⏸"); // Ícone pausa
+                isPaused = false;
+            } else {
+                clip.stop();
+                botaoPlayPause.setText("▶️"); // Ícone play
+                isPaused = true;
+            }
+        });
+
+        // Botão Próxima música
+        botaoProxima.setFocusable(false);
+        botaoProxima.addActionListener(e -> {
+            tocarProximaMusicaManual();
+        });
+
+        // Botão Repetir música
+        botaoRepetir.setFocusable(false);
+        botaoRepetir.addActionListener(e -> {
+            repetirMusica = !repetirMusica;
+            botaoRepetir.setText(repetirMusica ? "🔂" : "🔁"); // muda o ícone para repetição única ou playlist
+        });
+
+        // Volume Slider
         volumeSlider.setValue(-10);
         volumeSlider.addChangeListener(e -> {
             if (!isMuted && controleVolume != null) {
@@ -132,11 +162,30 @@ volumeSlider.addChangeListener(e -> {
             }
         });
 
+        // Adiciona controles ao painelSom
         painelSom.add(botaoMute);
+        painelSom.add(botaoPlayPause);
+        painelSom.add(botaoProxima);
+        painelSom.add(botaoRepetir);
         painelSom.add(volumeSlider);
+
         textoPainel.add(painelSom, BorderLayout.EAST);
 
+        frame.add(textoPainel, BorderLayout.NORTH);
+
+        painelQuadrado.setLayout(new GridLayout(9, 9));
+        setupTiles();
+        contarAcertosIniciais();
+        frame.add(painelQuadrado, BorderLayout.CENTER);
+
+        botaoNumeros.setLayout(new GridLayout(1, 9));
+        setupButtons();
+        frame.add(botaoNumeros, BorderLayout.SOUTH);
+
         frame.setVisible(true);
+
+        // Começa a tocar a primeira música
+        tocarProximaMusica();
     }
 
     void contarAcertosIniciais() {
@@ -273,13 +322,25 @@ volumeSlider.addChangeListener(e -> {
             }
 
             musicaAtualIndex = (musicaAtualIndex + 1) % playlist.size();
+            tocarMusicaAtual();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Método para tocar a música atual na playlist
+    private void tocarMusicaAtual() {
+        try {
             String musica = playlist.get(musicaAtualIndex);
+            musicaAtualLabel.setText("Música: " + musica.substring(musica.lastIndexOf('/') + 1));
 
             InputStream is = getClass().getResourceAsStream(musica);
             if (is == null) {
                 System.err.println("❌ Música não encontrada: " + musica);
                 return;
             }
+
             BufferedInputStream bis = new BufferedInputStream(is);
             bis.mark(Integer.MAX_VALUE);
 
@@ -291,24 +352,43 @@ volumeSlider.addChangeListener(e -> {
                 controleVolume = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
                 if (!isMuted) {
                     controleVolume.setValue(volumeSlider.getValue());
+                } else {
+                    controleVolume.setValue(controleVolume.getMinimum());
                 }
             } else {
                 controleVolume = null;
             }
 
             clip.start();
+            isPaused = false;
+            botaoPlayPause.setText("⏸");
 
             clip.addLineListener(event -> {
                 if (event.getType() == LineEvent.Type.STOP) {
-                    clip.stop();
-                    clip.close();
-                    tocarProximaMusica();
+                    if (!isPaused) {
+                        clip.close();
+                        if (repetirMusica) {
+                            tocarMusicaAtual();
+                        } else {
+                            tocarProximaMusica();
+                        }
+                    }
                 }
             });
 
         } catch (UnsupportedAudioFileException | IOException | LineUnavailableException e) {
             e.printStackTrace();
         }
+    }
+
+    // Método para tocar próxima música via botão (manual)
+    private void tocarProximaMusicaManual() {
+        if (clip != null && clip.isRunning()) {
+            clip.stop();
+            clip.close();
+        }
+        musicaAtualIndex = (musicaAtualIndex + 1) % playlist.size();
+        tocarMusicaAtual();
     }
 
     public static void main(String[] args) {
