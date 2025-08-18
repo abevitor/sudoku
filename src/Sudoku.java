@@ -107,21 +107,16 @@ public class Sudoku {
         painelSom.add(musicaAtualLabel);
 
         // Botão mute
-       botaoMute.addActionListener(e -> {
-    if (clip == null) return;
+ botaoMute.addActionListener(e -> {
+    if (clip == null || controleVolume == null) return;
 
-    if (!musicaPausada) {
-        // Pausa
-        framePosicaoPausada = clip.getFramePosition();
-        clip.stop();
-        musicaPausada = true;
-        botaoMute.setText("▶"); // símbolo de play
+    isMuted = !isMuted;
+    if (isMuted) {
+        controleVolume.setValue(controleVolume.getMinimum()); // zera volume
+        botaoMute.setText("🔇");
     } else {
-        // Continua de onde parou
-        clip.setFramePosition(framePosicaoPausada);
-        clip.start();
-        musicaPausada = false;
-        botaoMute.setText("⏸"); // símbolo de pause
+        controleVolume.setValue(volumeSlider.getValue()); // volta ao slider
+        botaoMute.setText("🔊");
     }
 });
 
